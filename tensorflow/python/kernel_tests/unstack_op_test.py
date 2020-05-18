@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Functional tests for Unpack Op."""
+"""Functional tests for Unstack Op."""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -39,87 +39,128 @@ def np_split_squeeze(array, axis):
 
 class UnstackOpTest(test.TestCase):
 
+  def randn(self, shape, dtype):
+    data = np.random.randn(*shape)
+    if dtype == np.bool:
+      return data < 0  # Naive casting yields True with P(1)!
+    else:
+      return data.astype(dtype)
+
+  def unstackReference(self, data, axis):
+    """Use numpy primitives to implement unstack equivalent."""
+    result = []
+    rank = len(data.shape)
+    axis = axis + rank if axis < 0 else axis
+    for k in range(data.shape[axis]):
+      axis = rank + axis if axis < 0 else axis
+      # Slice in axis dimension of k'th slice.
+      # e.g. if rank=4 k=2, axis=2 then equivalent of data[:,:,2,:]
+      # Give error with loop context
+      slice_spec = tuple(
+          slice(None) if i != axis else k for i in range(rank))
+      result.append(data.__getitem__(slice_spec))
+    return result
+
   def testSimple(self):
     np.random.seed(7)
-    with self.test_session(use_gpu=True):
-      for shape in (2,), (3,), (2, 3), (3, 2), (4, 3, 2):
+    for shape in (2,), (3,), (2, 3), (3, 2), (4, 3, 2):
+      rank = len(shape)
+      for axis in range(-rank, rank):
         for dtype in [
-            np.bool, np.float16, np.float32, np.float64, np.int32, np.int64
+            np.bool, np.float16, np.float32, np.float64, np.uint8, np.int32,
+            np.int64
         ]:
-          data = np.random.randn(*shape).astype(dtype)
+          data = self.randn(shape, dtype)
           # Convert data to a single tensorflow tensor
           x = constant_op.constant(data)
-          # Unpack into a list of tensors
-          cs = array_ops.unstack(x, num=shape[0])
+
+          # Unstack into a list of tensors
+          ref = self.unstackReference(data, axis)
+          cs = array_ops.unstack(x, axis=axis)
           self.assertEqual(type(cs), list)
-          self.assertEqual(len(cs), shape[0])
-          cs = [c.eval() for c in cs]
-          self.assertAllEqual(cs, data)
+          self.assertEqual(len(cs), shape[axis])
+          for k, c in enumerate(cs):
+            with self.subTest(shape=shape, k=k, axis=axis, dtype=dtype):
+              self.assertAllEqual(ref[k], self.evaluate(c))
 
   def testSimpleGpu(self):
     if not test_util.is_gpu_available():
       self.skipTest('No GPU available')
-    np.random.seed(7)
-    with self.test_session(use_gpu=True, force_gpu=True):
-      for shape in (2,), (3,), (2, 3), (3, 2), (4, 3, 2):
-        for dtype in [np.float16, np.float32, np.float64, np.int32, np.int64]:
-          data = np.random.randn(*shape).astype(dtype)
-          # Convert data to a single tensorflow tensor
-          x = constant_op.constant(data)
-          # Unpack into a list of tensors
-          cs = array_ops.unstack(x, num=shape[0])
-          self.assertEqual(type(cs), list)
-          self.assertEqual(len(cs), shape[0])
-          cs = [c.eval() for c in cs]
-          self.assertAllEqual(cs, data)
 
+    np.random.seed(7)
+    with test_util.force_gpu():
+      for shape in (2,), (3,), (2, 3), (3, 2), (4, 3, 2):
+        rank = len(shape)
+        for axis in range(-rank, rank):
+          for dtype in [
+              np.bool, np.float16, np.float32, np.float64, np.uint8, np.int32,
+              np.int64
+          ]:
+            data = self.randn(shape, dtype)
+            # Convert data to a single tensorflow tensor
+            x = constant_op.constant(data)
+            # Unstack into a list of tensors
+            ref = self.unstackReference(data, axis)
+            cs = array_ops.unstack(x, axis=axis)
+            self.assertEqual(type(cs), list)
+            self.assertEqual(len(cs), shape[axis])
+            for k, c in enumerate(cs):
+              # Give error with loop context
+              with self.subTest(shape=shape, k=k, axis=axis, dtype=dtype):
+                self.assertAllEqual(ref[k], self.evaluate(c))
+
+  @test_util.run_deprecated_v1
   def testGradientsAxis0(self):
     for shape in (2,), (3,), (2, 3), (3, 2), (4, 3, 2):
       data = np.random.randn(*shape)
       shapes = [shape[1:]] * shape[0]
       for i in xrange(shape[0]):
-        with self.test_session(use_gpu=True):
+        with self.cached_session():
           x = constant_op.constant(data)
           cs = array_ops.unstack(x, num=shape[0])
           err = gradient_checker.compute_gradient_error(x, shape, cs[i],
                                                         shapes[i])
           self.assertLess(err, 1e-6)
 
+  @test_util.run_deprecated_v1
   def testGradientsAxis1(self):
     for shape in (2, 3), (3, 2), (4, 3, 2):
       data = np.random.randn(*shape)
       out_shape = list(shape)
       del out_shape[1]
       for i in xrange(shape[1]):
-        with self.test_session(use_gpu=True):
+        with self.cached_session():
           x = constant_op.constant(data)
           cs = array_ops.unstack(x, num=shape[1], axis=1)
           err = gradient_checker.compute_gradient_error(x, shape, cs[i],
                                                         out_shape)
           self.assertLess(err, 1e-6)
 
+  @test_util.run_deprecated_v1
   def testInferNum(self):
-    with self.test_session():
-      for shape in (2,), (3,), (2, 3), (3, 2), (4, 3, 2):
-        x = array_ops.placeholder(np.float32, shape=shape)
-        cs = array_ops.unstack(x)
-        self.assertEqual(type(cs), list)
-        self.assertEqual(len(cs), shape[0])
+    for shape in (2,), (3,), (2, 3), (3, 2), (4, 3, 2):
+      x = array_ops.placeholder(np.float32, shape=shape)
+      cs = array_ops.unstack(x)
+      self.assertEqual(type(cs), list)
+      self.assertEqual(len(cs), shape[0])
 
+  @test_util.run_deprecated_v1
   def testCannotInferNumFromUnknownShape(self):
     x = array_ops.placeholder(np.float32)
     with self.assertRaisesRegexp(ValueError,
                                  r'Cannot infer num from shape <unknown>'):
       array_ops.unstack(x)
 
+  @test_util.run_deprecated_v1
   def testUnknownShapeOkWithNum(self):
     x = array_ops.placeholder(np.float32)
     array_ops.unstack(x, num=2)
 
+  @test_util.run_deprecated_v1
   def testCannotInferNumFromNoneShape(self):
     x = array_ops.placeholder(np.float32, shape=(None,))
     with self.assertRaisesRegexp(ValueError,
-                                 r'Cannot infer num from shape \(\?,\)'):
+                                 r'Cannot infer num from shape \((\?|None),\)'):
       array_ops.unstack(x)
 
   def testAgainstNumpy(self):
@@ -131,15 +172,13 @@ class UnstackOpTest(test.TestCase):
       for j in range(-i, i):
         expected = np_split_squeeze(a, j)
 
-        with self.test_session() as sess:
-          actual_unstack = sess.run(array_ops.unstack(a, axis=j))
+        actual_unstack = self.evaluate(array_ops.unstack(a, axis=j))
 
         self.assertAllEqual(expected, actual_unstack)
 
   def testAxis0Default(self):
-    with self.test_session() as sess:
-      a = constant_op.constant([[1, 2, 3], [4, 5, 6]], name='a')
-      unstacked = sess.run(array_ops.unstack(a))
+    a = constant_op.constant([[1, 2, 3], [4, 5, 6]], name='a')
+    unstacked = self.evaluate(array_ops.unstack(a))
 
     self.assertEqual(len(unstacked), 2)
     self.assertAllEqual(unstacked[0], [1, 2, 3])
@@ -156,10 +195,27 @@ class UnstackOpTest(test.TestCase):
       array_ops.unstack(a, axis=-3)
 
   def testZeroLengthDim(self):
-    with self.test_session():
-      x = array_ops.zeros(shape=(0, 1, 2))
-      y = array_ops.unstack(x, axis=1)[0].eval()
-      self.assertEqual(y.shape, (0, 2))
+    x = array_ops.zeros(shape=(0, 1, 2))
+    y = self.evaluate(array_ops.unstack(x, axis=1)[0])
+    self.assertEqual(y.shape, (0, 2))
+
+  def testComplexGpu(self):
+    if not test_util.is_gpu_available():
+      self.skipTest('No GPU available')
+
+    np.random.seed(7)
+    with test_util.force_gpu():
+      for shape in (2,), (3,), (2, 3), (3, 2), (4, 3, 2):
+        for dtype in [np.complex64, np.complex128]:
+          data = np.random.randn(*shape).astype(dtype)
+          # Convert data to a single tensorflow tensor
+          x = constant_op.constant(data)
+          # Unstack into a list of tensors
+          cs = array_ops.unstack(x, num=shape[0])
+          self.assertEqual(type(cs), list)
+          self.assertEqual(len(cs), shape[0])
+          cs = [self.evaluate(c) for c in cs]
+          self.assertAllEqual(cs, data)
 
 
 if __name__ == '__main__':

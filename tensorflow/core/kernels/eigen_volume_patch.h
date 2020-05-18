@@ -13,8 +13,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef THIRD_PARTY_TENSORFLOW_CORE_KERNELS_EIGEN_VOLUME_PATCH_H_
-#define THIRD_PARTY_TENSORFLOW_CORE_KERNELS_EIGEN_VOLUME_PATCH_H_
+#ifndef TENSORFLOW_CORE_KERNELS_EIGEN_VOLUME_PATCH_H_
+#define TENSORFLOW_CORE_KERNELS_EIGEN_VOLUME_PATCH_H_
 
 #include "third_party/eigen3/unsupported/Eigen/CXX11/Tensor"
 
@@ -28,21 +28,22 @@ template <DenseIndex Planes, DenseIndex Rows, DenseIndex Cols, typename ArgType,
 struct CustomTensorEvaluator {
   typedef TensorVolumePatchOp<Planes, Rows, Cols, ArgType> XprType;
   typedef typename XprType::Index Index;
-  static const int NumInputDims = internal::array_size<
+  static constexpr int NumInputDims = internal::array_size<
       typename TensorEvaluator<ArgType, Device>::Dimensions>::value;
-  static const int NumDims = NumInputDims + 1;
+  static constexpr int NumDims = NumInputDims + 1;
   typedef DSizes<Index, NumDims> Dimensions;
   typedef
       typename internal::remove_const<typename XprType::Scalar>::type Scalar;
   typedef typename XprType::CoeffReturnType CoeffReturnType;
   typedef typename PacketType<CoeffReturnType, Device>::type PacketReturnType;
-  static const Index PacketSize =
+  static constexpr Index PacketSize =
       internal::unpacket_traits<PacketReturnType>::size;
 
   enum {
     IsAligned = false,
     PacketAccess = TensorEvaluator<ArgType, Device>::PacketAccess,
     BlockAccess = false,
+    PreferBlockAccess = false,
     Layout = TensorEvaluator<ArgType, Device>::Layout,
     CoordAccess = NumDims == 6,
     RawAccess = false
@@ -564,7 +565,7 @@ struct CustomTensorEvaluator {
 
   Dimensions m_dimensions;
 
-  // Parameters passed to the costructor.
+  // Parameters passed to the constructor.
   Index m_plane_strides;
   Index m_row_strides;
   Index m_col_strides;
@@ -653,4 +654,4 @@ OVERRIDE_EVALUATOR(Eigen::DefaultDevice);
 
 };  // namespace Eigen
 
-#endif  // THIRD_PARTY_TENSORFLOW_CORE_KERNELS_EIGEN_VOLUME_PATCH_H_
+#endif  // TENSORFLOW_CORE_KERNELS_EIGEN_VOLUME_PATCH_H_

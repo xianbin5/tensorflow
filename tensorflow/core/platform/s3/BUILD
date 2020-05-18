@@ -13,25 +13,13 @@ load(
     "tf_cc_test",
 )
 
-filegroup(
-    name = "all_files",
-    srcs = glob(
-        ["**/*"],
-        exclude = [
-            "**/METADATA",
-            "**/OWNERS",
-        ],
-    ),
-    visibility = ["//tensorflow:__subpackages__"],
-)
-
 tf_cc_binary(
-    name = "s3_file_system.so",
+    name = "libs3_file_system_shared.so",
     srcs = [
+        "aws_crypto.cc",
+        "aws_crypto.h",
         "aws_logging.cc",
         "aws_logging.h",
-        "s3_crypto.cc",
-        "s3_crypto.h",
         "s3_file_system.cc",
         "s3_file_system.h",
     ],
@@ -45,24 +33,24 @@ tf_cc_binary(
     linkshared = 1,
     deps = [
         "//tensorflow/core:framework_headers_lib",
-        "@aws//:aws",
-        "@curl//:curl",
-        "@protobuf_archive//:protobuf_headers",
+        "//tensorflow/core/platform:retrying_file_system",
+        "//tensorflow/core/platform:retrying_utils",
+        "@aws",
+        "@com_google_protobuf//:protobuf_headers",
+        "@curl",
     ],
 )
 
 cc_library(
-    name = "s3_crypto",
+    name = "aws_crypto",
     srcs = [
-        "s3_crypto.cc",
+        "aws_crypto.cc",
     ],
     hdrs = [
-        "s3_crypto.h",
+        "aws_crypto.h",
     ],
     deps = [
-        "//tensorflow/core:lib",
-        "//tensorflow/core:lib_internal",
-        "@aws//:aws",
+        "@aws",
         "@boringssl//:crypto",
     ],
     alwayslink = 1,
@@ -79,7 +67,8 @@ cc_library(
     deps = [
         "//tensorflow/core:lib",
         "//tensorflow/core:lib_internal",
-        "@aws//:aws",
+        "//tensorflow/core/platform:stringprintf",
+        "@aws",
     ],
     alwayslink = 1,
 )
@@ -92,12 +81,19 @@ cc_library(
     hdrs = [
         "s3_file_system.h",
     ],
-    deps = [
+    deps = select({
+        "@org_tensorflow//tensorflow:windows": [
+            "//tensorflow/core/platform:retrying_file_system",
+        ],
+        "//conditions:default": [],
+    }) + [
+        ":aws_crypto",
         ":aws_logging",
-        ":s3_crypto",
         "//tensorflow/core:lib",
         "//tensorflow/core:lib_internal",
-        "@aws//:aws",
+        "//tensorflow/core/platform:path",
+        "//tensorflow/core/platform:str_util",
+        "@aws",
     ],
     alwayslink = 1,
 )
@@ -117,6 +113,7 @@ tf_cc_test(
         "//tensorflow/core:lib_internal",
         "//tensorflow/core:test",
         "//tensorflow/core:test_main",
-        "@aws//:aws",
+        "//tensorflow/core/platform:path",
+        "@aws",
     ],
 )

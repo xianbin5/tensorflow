@@ -41,7 +41,7 @@ class TypedQueue : public QueueBase {
   int64 MemoryUsed() const override;
 
  protected:
-  std::vector<SubQueue> queues_ GUARDED_BY(mu_);
+  std::vector<SubQueue> queues_ TF_GUARDED_BY(mu_);
 };  // class TypedQueue
 
 template <typename SubQueue>
@@ -58,9 +58,9 @@ Status TypedQueue<SubQueue>::Initialize() {
   if (!component_shapes_.empty() &&
       component_dtypes_.size() != component_shapes_.size()) {
     return errors::InvalidArgument(
-        "Different number of component types.  ", "Types: ",
-        DataTypeSliceString(component_dtypes_), ", Shapes: ",
-        ShapeListString(component_shapes_));
+        "Different number of component types.  ",
+        "Types: ", DataTypeSliceString(component_dtypes_),
+        ", Shapes: ", ShapeListString(component_shapes_));
   }
 
   mutex_lock lock(mu_);

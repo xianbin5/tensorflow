@@ -13,12 +13,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef THIRD_PARTY_TENSORFLOW_PYTHON_LIB_CORE_SAFE_PTR_H_
-#define THIRD_PARTY_TENSORFLOW_PYTHON_LIB_CORE_SAFE_PTR_H_
+#ifndef TENSORFLOW_PYTHON_LIB_CORE_SAFE_PTR_H_
+#define TENSORFLOW_PYTHON_LIB_CORE_SAFE_PTR_H_
 
 #include <memory>
 
 #include <Python.h>
+
 #include "tensorflow/c/c_api.h"
 #include "tensorflow/c/eager/c_api.h"
 
@@ -39,6 +40,10 @@ struct TFETensorHandleDeleter {
 
 struct TFStatusDeleter {
   void operator()(TF_Status* p) const { TF_DeleteStatus(p); }
+};
+
+struct TFBufferDeleter {
+  void operator()(TF_Buffer* p) const { TF_DeleteBuffer(p); }
 };
 
 }  // namespace detail
@@ -64,6 +69,11 @@ Safe_TFE_TensorHandlePtr make_safe(TFE_TensorHandle* handle);
 using Safe_TF_StatusPtr = std::unique_ptr<TF_Status, detail::TFStatusDeleter>;
 Safe_TF_StatusPtr make_safe(TF_Status* status);
 
+// Safe containers for an owned TF_Buffer. On destruction, the handle
+// will be deleted by TF_DeleteBuffer.
+using Safe_TF_BufferPtr = std::unique_ptr<TF_Buffer, detail::TFBufferDeleter>;
+Safe_TF_BufferPtr make_safe(TF_Buffer* buffer);
+
 }  // namespace tensorflow
 
-#endif  // THIRD_PARTY_TENSORFLOW_PYTHON_LIB_CORE_SAFE_PTR_H_
+#endif  // TENSORFLOW_PYTHON_LIB_CORE_SAFE_PTR_H_

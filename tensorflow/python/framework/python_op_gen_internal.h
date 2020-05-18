@@ -13,8 +13,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef THIRD_PARTY_TENSORFLOW_PYTHON_FRAMEWORK_PYTHON_OP_GEN_INTERNAL_H_
-#define THIRD_PARTY_TENSORFLOW_PYTHON_FRAMEWORK_PYTHON_OP_GEN_INTERNAL_H_
+#ifndef TENSORFLOW_PYTHON_FRAMEWORK_PYTHON_OP_GEN_INTERNAL_H_
+#define TENSORFLOW_PYTHON_FRAMEWORK_PYTHON_OP_GEN_INTERNAL_H_
 
 #include <unordered_map>
 
@@ -29,7 +29,12 @@ namespace python_op_gen_internal {
 // Returns true if s is a Python keyword or built-in.
 bool IsPythonReserved(const string& s);
 
+// Whether the op should be prefixed with underscore.
+bool IsOpWithUnderscorePrefix(const string& s);
+
 // Add a _ to the end of s if necessary to avoid a Python keyword or built-in.
+// Also convert namespace characters ('>') to '_' because python does not
+// support '>' in names
 string AvoidPythonReserved(const string& s);
 
 // Convert an AttrValue with type `type` to the Python representation for
@@ -73,6 +78,7 @@ class GenPythonOp {
 
  protected:
   // Print: def Function(parameters):
+  void AddDefLine(const string& function_name, const string& parameters);
   void AddDefLine(const string& parameters);
 
   // Format the Op's descriptions so that it can be a Python docstring.
@@ -112,4 +118,4 @@ class GenPythonOp {
 }  // namespace python_op_gen_internal
 }  // namespace tensorflow
 
-#endif  // THIRD_PARTY_TENSORFLOW_PYTHON_FRAMEWORK_PYTHON_OP_GEN_INTERNAL_H_
+#endif  // TENSORFLOW_PYTHON_FRAMEWORK_PYTHON_OP_GEN_INTERNAL_H_

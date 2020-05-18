@@ -58,10 +58,8 @@ limitations under the License.
 //       "/fs/model/train/ckpt-step/ckpt" /* merged prefix */);
 //
 
-#ifndef TENSORFLOW_UTIL_TENSOR_BUNDLE_TENSOR_BUNDLE_H_
-#define TENSORFLOW_UTIL_TENSOR_BUNDLE_TENSOR_BUNDLE_H_
-
-#include "tensorflow/core/protobuf/tensor_bundle.pb.h"
+#ifndef TENSORFLOW_CORE_UTIL_TENSOR_BUNDLE_TENSOR_BUNDLE_H_
+#define TENSORFLOW_CORE_UTIL_TENSOR_BUNDLE_TENSOR_BUNDLE_H_
 
 #include <map>
 #include <string>
@@ -72,12 +70,14 @@ limitations under the License.
 #include "tensorflow/core/framework/tensor_slice.h"
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/lib/gtl/array_slice.h"
+#include "tensorflow/core/lib/io/cache.h"
 #include "tensorflow/core/lib/io/inputbuffer.h"
 #include "tensorflow/core/lib/io/table.h"
 #include "tensorflow/core/platform/env.h"
 #include "tensorflow/core/platform/file_system.h"
 #include "tensorflow/core/platform/macros.h"
 #include "tensorflow/core/platform/types.h"
+#include "tensorflow/core/protobuf/tensor_bundle.pb.h"
 #include "tensorflow/core/util/tensor_bundle/naming.h"
 #include "tensorflow/core/util/tensor_slice_set.h"
 
@@ -107,7 +107,14 @@ extern const char* const kHeaderEntryKey;
 // All threads accessing the same BundleWriter must synchronize.
 class BundleWriter {
  public:
-  BundleWriter(Env* env, StringPiece prefix);
+  struct Options {
+    Options() {}
+    // Alignment, in bytes, for tensor data.
+    // Must be >= 1. The default size of 1 densely packs tensors.
+    int data_alignment{1};
+  };
+  BundleWriter(Env* env, StringPiece prefix,
+               const Options& options = Options());
 
   // Adds the tensor "val" under key "key".
   // Across calls "key" must be unique but can be added in any order.
@@ -140,9 +147,11 @@ class BundleWriter {
 
  private:
   Env* const env_;  // Not owned.
+  const Options options_;
   const string prefix_;
-  const string tmp_metadata_path_;
-  const string tmp_data_path_;
+  string metadata_path_;
+  string data_path_;
+  bool use_temp_file_;
   std::unique_ptr<FileOutputBuffer> out_;
   int64 size_;  // Number of bytes written into out_.
   std::map<string, BundleEntryProto> entries_;
@@ -164,7 +173,7 @@ class BundleWriter {
 //
 // Once merged, makes a best effort to delete the old metadata files.
 // Returns OK iff all bundles are successfully merged.
-Status MergeBundles(Env* env, gtl::ArraySlice<string> prefixes,
+Status MergeBundles(Env* env, gtl::ArraySlice<tstring> prefixes,
                     StringPiece merged_prefix);
 
 // On construction, silently attempts to read the metadata associated with
@@ -280,6 +289,7 @@ class BundleReader {
   Status status_;
   RandomAccessFile* metadata_;  // Owned.
   table::Table* table_;
+  table::Cache* index_cache_;
   table::Iterator* iter_;
   // Owned the InputBuffer objects and their underlying RandomAccessFile's.
   std::unordered_map<int32, io::InputBuffer*> data_;
@@ -292,10 +302,11 @@ class BundleReader {
   // the header entry in the metadata table.
   int num_shards_;
 
-  // If set to true, try reading key + ":0" whenever key is not found in the
-  // bundle. This is a temporary measure that will be removed on Jan 1st 2018.
-  // TODO(b/64763924): Remove after Jan 1st 2018.
-  bool lenient_names_;
+  // Flag that this class sets to true when the endianness of the target bundle
+  // differs from that of the current system's processor architecture.
+  bool need_to_swap_bytes_;
+
+  friend class TensorBundleAlignmentTest;  // For testing data alignment.
 
   TF_DISALLOW_COPY_AND_ASSIGN(BundleReader);
 };
@@ -341,4 +352,4 @@ class FileOutputBuffer {
 
 }  // namespace tensorflow
 
-#endif  // TENSORFLOW_UTIL_TENSOR_BUNDLE_TENSOR_BUNDLE_H_
+#endif  // TENSORFLOW_CORE_UTIL_TENSOR_BUNDLE_TENSOR_BUNDLE_H_

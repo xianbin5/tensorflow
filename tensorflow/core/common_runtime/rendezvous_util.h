@@ -12,12 +12,13 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
-#ifndef THIRD_PARTY_TENSORFLOW_CORE_COMMON_RUNTIME_RENDEZVOUS_UTIL_H_
-#define THIRD_PARTY_TENSORFLOW_CORE_COMMON_RUNTIME_RENDEZVOUS_UTIL_H_
+#ifndef TENSORFLOW_CORE_COMMON_RUNTIME_RENDEZVOUS_UTIL_H_
+#define TENSORFLOW_CORE_COMMON_RUNTIME_RENDEZVOUS_UTIL_H_
 
 #include <map>
 
 #include "tensorflow/core/framework/rendezvous.h"
+#include "tensorflow/core/lib/core/status.h"
 
 namespace tensorflow {
 
@@ -30,7 +31,7 @@ typedef std::function<void(const Status&)> StatusCallback;
 // allocated. `alloc_attrs` should either be {} or should match the length of
 // `keys`.
 Status SendTensorsToRendezvous(
-    Rendezvous* rendezvous, DeviceContext* device_context,
+    RendezvousInterface* rendezvous, DeviceContext* device_context,
     const std::vector<AllocatorAttributes>& alloc_attrs,
     const std::vector<string>& keys, gtl::ArraySlice<Tensor> tensors_to_send);
 
@@ -39,14 +40,15 @@ Status SendTensorsToRendezvous(
 // information as how to store the received tensors. Should be {} or match the
 // length of `keys`.
 void RecvOutputsFromRendezvousAsync(
-    Rendezvous* rendezvous, DeviceContext* device_context,
+    RendezvousInterface* rendezvous, DeviceContext* device_context,
     const std::vector<AllocatorAttributes>& alloc_attrs,
     const std::vector<string>& keys, std::vector<Tensor>* received_tensors,
-    const StatusCallback& done);
+    StatusCallback done);
 
-Status RecvOutputsFromRendezvous(Rendezvous* rendezvous, NamedTensors* out,
+Status RecvOutputsFromRendezvous(RendezvousInterface* rendezvous,
+                                 NamedTensors* out,
                                  const Rendezvous::Args& args);
 
 }  // namespace tensorflow
 
-#endif  // THIRD_PARTY_TENSORFLOW_CORE_COMMON_RUNTIME_RENDEZVOUS_UTIL_H_
+#endif  // TENSORFLOW_CORE_COMMON_RUNTIME_RENDEZVOUS_UTIL_H_

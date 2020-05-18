@@ -284,11 +284,11 @@ class SparseMatmulOpTest : public ::testing::Test {
       uint16_t* data3_bfloat16_p =
           reinterpret_cast<uint16_t*>(data3_bfloat16) + i;
 #if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-            data3_p[1] = 0;
-            data3_bfloat16_p[0] = data3_p[0];
+      data3_p[1] = 0;
+      data3_bfloat16_p[0] = data3_p[0];
 #else
-            data3_p[0] = 0;
-            data3_bfloat16_p[0] = data3_p[1];
+      data3_p[0] = 0;
+      data3_bfloat16_p[0] = data3_p[1];
 #endif
     }
   }
@@ -311,7 +311,7 @@ class SparseMatmulOpTest : public ::testing::Test {
 #elif defined EIGEN_VECTORIZE_AVX || defined EIGEN_VECTORIZE_AVX2
   static const int kMaxPacketSize = 8;
 #else
-  static const int kMaxPacketSize = 4;
+  static constexpr int kMaxPacketSize = 4;
 #endif
   typedef typename Eigen::internal::packet_traits<float>::type Packet;
   const int PacketSize;

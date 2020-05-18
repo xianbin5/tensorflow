@@ -18,6 +18,8 @@ limitations under the License.
 #include <mutex>
 #include <string>
 
+#include "absl/base/call_once.h"
+#include "tensorflow/core/platform/byte_order.h"
 #include "tensorflow/core/platform/cpu_info.h"
 #include "tensorflow/core/platform/logging.h"
 
@@ -40,7 +42,7 @@ void CheckFeatureOrDie(CPUFeature feature, const string& feature_name) {
   }
 }
 
-// Check if CPU feature is inclued in the TensorFlow binary.
+// Check if CPU feature is included in the TensorFlow binary.
 void CheckIfFeatureUnused(CPUFeature feature, const string& feature_name,
                           string& missing_instructions) {
   if (TestCPUFeature(feature)) {
@@ -90,21 +92,24 @@ class CPUFeatureGuard {
 
 CPUFeatureGuard g_cpu_feature_guard_singleton;
 
-std::once_flag g_cpu_feature_guard_warn_once_flag;
+absl::once_flag g_cpu_feature_guard_warn_once_flag;
 
 }  // namespace
 
 void InfoAboutUnusedCPUFeatures() {
-  std::call_once(g_cpu_feature_guard_warn_once_flag, [] {
+  absl::call_once(g_cpu_feature_guard_warn_once_flag, [] {
     string missing_instructions;
-#ifdef PLATFORM_WINDOWS
+#if defined(_MSC_VER) && !defined(__clang__)
+
 #ifndef __AVX__
     CheckIfFeatureUnused(CPUFeature::AVX, "AVX", missing_instructions);
 #endif  // __AVX__
 #ifndef __AVX2__
     CheckIfFeatureUnused(CPUFeature::AVX2, "AVX2", missing_instructions);
 #endif  // __AVX2__
-#else   // ifdef platform windows
+
+#else  // if defined(_MSC_VER) && !defined(__clang__)
+
 #ifndef __SSE__
     CheckIfFeatureUnused(CPUFeature::SSE, "SSE", missing_instructions);
 #endif  // __SSE__
@@ -132,10 +137,13 @@ void InfoAboutUnusedCPUFeatures() {
 #ifndef __FMA__
     CheckIfFeatureUnused(CPUFeature::FMA, "FMA", missing_instructions);
 #endif  // __FMA__
-#endif  // else of ifdef platform windows
+#endif  // else of if defined(_MSC_VER) && !defined(__clang__)
     if (!missing_instructions.empty()) {
-      LOG(INFO) << "Your CPU supports instructions that this TensorFlow "
-                << "binary was not compiled to use:" << missing_instructions;
+      LOG(INFO) << "This TensorFlow binary is optimized with Intel(R) MKL-DNN "
+                << "to use the following CPU instructions in performance-"
+                << "critical operations: " << missing_instructions << std::endl
+                << "To enable them in other operations, rebuild TensorFlow "
+                << "with the appropriate compiler flags.";
     }
   });
 }

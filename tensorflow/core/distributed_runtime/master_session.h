@@ -52,13 +52,12 @@ class MasterSession : public core::RefCounted {
       std::unique_ptr<std::vector<std::unique_ptr<Device>>> remote_devs,
       std::unique_ptr<WorkerCacheInterface> worker_cache,
       std::unique_ptr<DeviceSet> device_set,
+      std::vector<string> filtered_worker_list,
       StatsPublisherFactory stats_publisher_factory);
 
   // Initialize the MasterSession for "def".  Must be called before Extend(),
   // Run(), or Close().
-  //
-  // After this method returns, `def` will no longer be valid.
-  Status Create(GraphDef* def, const WorkerCacheFactoryOptions& options);
+  Status Create(GraphDef&& def, const WorkerCacheFactoryOptions& options);
 
   // Returns the session handle.
   const string& handle() const { return handle_; }
@@ -88,6 +87,15 @@ class MasterSession : public core::RefCounted {
              MutableRunStepResponseWrapper* resp);
 
   Status ListDevices(ListDevicesResponse* resp) const;
+
+  Status MakeCallable(const MakeCallableRequest& req,
+                      MakeCallableResponse* resp);
+
+  Status RunCallable(CallOptions* opts, const RunCallableRequest& req,
+                     RunCallableResponse* resp);
+
+  Status ReleaseCallable(const ReleaseCallableRequest& req,
+                         ReleaseCallableResponse* resp);
 
   // Close this session and delete "*this". Returns OK if all known
   // states are cleanup successfully.
@@ -121,14 +129,20 @@ class MasterSession : public core::RefCounted {
   // The device set used by this session.
   std::unique_ptr<DeviceSet> devices_;
 
+  // The (partial device) names of remote worker tasks that this
+  // session will contact.
+  const std::vector<string> filtered_worker_list_;
+
   StatsPublisherFactory stats_publisher_factory_;
 
   std::atomic_ulong last_access_time_usec_;
 
   std::atomic<int64> partial_run_handle_counter_ = {0};
 
+  uint64 NewStepId(int64 graph_key);
+
   mutex mu_;
-  std::unique_ptr<GraphExecutionState> execution_state_ GUARDED_BY(mu_);
+  std::unique_ptr<GraphExecutionState> execution_state_ TF_GUARDED_BY(mu_);
   int64 graph_version_;
 
   // We keep a map from a signature of a run request to the
@@ -138,8 +152,10 @@ class MasterSession : public core::RefCounted {
   // scope and lose their state.
   class ReffedClientGraph;
   typedef std::unordered_map<uint64, ReffedClientGraph*> RCGMap;
-  RCGMap run_graphs_ GUARDED_BY(mu_);
-  RCGMap partial_run_graphs_ GUARDED_BY(mu_);
+  RCGMap run_graphs_ TF_GUARDED_BY(mu_);
+  RCGMap partial_run_graphs_ TF_GUARDED_BY(mu_);
+  int64 next_callable_handle_ TF_GUARDED_BY(mu_) = 0;
+  RCGMap callables_ TF_GUARDED_BY(mu_);
 
   struct PerStepState {
     bool collect_costs = false;
@@ -159,6 +175,7 @@ class MasterSession : public core::RefCounted {
     std::unordered_map<string, bool> pending_outputs;  // true if fetched
     ReffedClientGraph* rcg = nullptr;
     uint64 step_id;
+    int64 collective_graph_key;
     int64 count = 0;
     PerStepState pss;
     std::unique_ptr<ProfileHandler> ph;
@@ -173,20 +190,21 @@ class MasterSession : public core::RefCounted {
     ~RunState();
   };
   std::unordered_map<string, std::unique_ptr<RunState>> partial_runs_
-      GUARDED_BY(mu_);
+      TF_GUARDED_BY(mu_);
 
   // Active RunStep calls.
   condition_variable num_running_is_zero_;
-  int32 num_running_ GUARDED_BY(mu_) = 0;
+  int32 num_running_ TF_GUARDED_BY(mu_) = 0;
 
-  bool closed_ GUARDED_BY(mu_) = false;
-  bool garbage_collected_ GUARDED_BY(mu_) = false;
+  bool closed_ TF_GUARDED_BY(mu_) = false;
+  bool garbage_collected_ TF_GUARDED_BY(mu_) = false;
 
-  std::unordered_map<uint64, int64> subgraph_execution_counts_ GUARDED_BY(mu_);
+  std::unordered_map<uint64, int64> subgraph_execution_counts_
+      TF_GUARDED_BY(mu_);
 
   // We need to ensure that certain nodes added (e.g., send and recv
   // nodes) are unique across all sub-graphs within this session.
-  int64 next_node_id_ GUARDED_BY(mu_) = 0;
+  int64 next_node_id_ TF_GUARDED_BY(mu_) = 0;
 
   // Used to cancel running steps on Close().
   CancellationManager cancellation_manager_;
@@ -201,19 +219,31 @@ class MasterSession : public core::RefCounted {
   // workers.
   Status CreateWorkerSessions(const WorkerCacheFactoryOptions& server_def);
 
-  // TODO(b/36574172): Always use Create/DeleteWorkerSession.
   bool should_delete_worker_sessions_ = false;
   Status DeleteWorkerSessions();
 
-  Status StartStep(const BuildGraphOptions& opts, int64* count,
-                   ReffedClientGraph** graph, bool is_partial);
+  Status StartStep(const BuildGraphOptions& opts, bool is_partial,
+                   ReffedClientGraph** out_rcg, int64* out_count);
   void ClearRunsTable(std::vector<ReffedClientGraph*>* to_unref,
-                      RCGMap* rcg_map) EXCLUSIVE_LOCKS_REQUIRED(mu_);
+                      RCGMap* rcg_map) TF_EXCLUSIVE_LOCKS_REQUIRED(mu_);
+  void FillPerStepState(MasterSession::ReffedClientGraph* rcg,
+                        const RunOptions& run_options, uint64 step_id,
+                        int64 count, PerStepState* out_pss,
+                        std::unique_ptr<ProfileHandler>* out_ph);
   Status DoRunWithLocalExecution(CallOptions* opts,
                                  const RunStepRequestWrapper& req,
                                  MutableRunStepResponseWrapper* resp);
   Status DoPartialRun(CallOptions* opts, const RunStepRequestWrapper& req,
                       MutableRunStepResponseWrapper* resp);
+  Status DoRunCallable(CallOptions* opts, ReffedClientGraph* rcg,
+                       const RunCallableRequest& req,
+                       RunCallableResponse* resp);
+  Status PostRunCleanup(MasterSession::ReffedClientGraph* rcg, uint64 step_id,
+                        const RunOptions& run_options, PerStepState* pss,
+                        const std::unique_ptr<ProfileHandler>& ph,
+                        const Status& run_status,
+                        RunMetadata* out_run_metadata);
+
   void MarkRunCompletion();
   void UpdateLastAccessTime();
 

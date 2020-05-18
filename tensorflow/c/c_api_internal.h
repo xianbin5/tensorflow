@@ -24,39 +24,35 @@ limitations under the License.
 #include <unordered_map>
 #include <vector>
 
-#ifndef __ANDROID__
+// clang-format off
+// Required for IS_MOBILE_PLATFORM
+#include "tensorflow/core/platform/platform.h"
+// clang-format on
+
+#include "tensorflow/c/tf_status_internal.h"
+#include "tensorflow/c/tf_tensor_internal.h"
+#if !defined(IS_MOBILE_PLATFORM) && !defined(IS_SLIM_BUILD)
 #include "tensorflow/core/framework/op_gen_lib.h"
-#endif
+#endif  // !defined(IS_MOBILE_PLATFORM) && !defined(IS_SLIM_BUILD)
 #include "tensorflow/core/common_runtime/shape_refiner.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/graph/graph.h"
-#include "tensorflow/core/graph/graph_constructor.h"
+#include "tensorflow/core/common_runtime/graph_constructor.h"
 #include "tensorflow/core/graph/node_builder.h"
-#include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/platform/mutex.h"
+#include "tensorflow/core/platform/status.h"
 #include "tensorflow/core/platform/types.h"
 #include "tensorflow/core/public/session.h"
 
 namespace tensorflow {
 class Device;
 class DeviceMgr;
+class ServerInterface;
 }  // namespace tensorflow
 
 // Internal structures used by the C API. These are likely to change and should
 // not be depended on.
-
-struct TF_Status {
-  tensorflow::Status status;
-};
-
-struct TF_Tensor {
-  ~TF_Tensor();
-
-  TF_DataType dtype;
-  tensorflow::TensorShape shape;
-  tensorflow::TensorBuffer* buffer;
-};
 
 struct TF_SessionOptions {
   tensorflow::SessionOptions options;
@@ -75,30 +71,31 @@ struct TF_Graph {
   TF_Graph();
 
   tensorflow::mutex mu;
-  tensorflow::Graph graph GUARDED_BY(mu);
+  tensorflow::Graph graph TF_GUARDED_BY(mu);
 
   // Runs shape inference.
-  tensorflow::ShapeRefiner refiner GUARDED_BY(mu);
+  tensorflow::ShapeRefiner refiner TF_GUARDED_BY(mu);
 
   // Maps from name of an operation to the Node* in 'graph'.
   std::unordered_map<tensorflow::string, tensorflow::Node*> name_map
-      GUARDED_BY(mu);
+      TF_GUARDED_BY(mu);
 
-  // The keys of this map are all the active sessions using this graph.
-  // Each value is the current "runnability" status of the corresponding
-  // session. Under normal conditions all statuses are Status::OK(), but
-  // if some operation is mutated after it was run by a session (this
-  // is detected in RecordMutation function), that session is no longer
-  // safe to run. Its status will contain the error that will be returned
-  // to the user, should she try running this session.
+  // The keys of this map are all the active sessions using this graph. Each
+  // value records whether the graph has been mutated since the corresponding
+  // session has been run (this is detected in RecordMutation function). If the
+  // string is empty, no mutation has occurred. Otherwise the string is a
+  // description of the mutation suitable for returning to the user.
   //
   // Sessions are added to this map in TF_NewSession, and removed in
   // TF_DeleteSession.
   // TF_Graph may only / must be deleted when
   //   sessions.size() == 0 && delete_requested == true
-  tensorflow::gtl::FlatMap<TF_Session*, tensorflow::Status> sessions
-      GUARDED_BY(mu);
-  bool delete_requested GUARDED_BY(mu);  // set true by TF_DeleteGraph
+  //
+  // TODO(b/74949947): mutations currently trigger a warning instead of a bad
+  // status, this should be reverted when possible.
+  tensorflow::gtl::FlatMap<TF_Session*, tensorflow::string> sessions
+      TF_GUARDED_BY(mu);
+  bool delete_requested TF_GUARDED_BY(mu);  // set true by TF_DeleteGraph
 
   // Used to link graphs contained in TF_WhileParams to the parent graph that
   // will eventually contain the full while loop.
@@ -124,15 +121,16 @@ struct TF_Session {
   TF_Session(tensorflow::Session* s, TF_Graph* g);
 
   tensorflow::Session* session;
-  TF_Graph* graph;
+  TF_Graph* const graph;
 
-  tensorflow::mutex mu;
+  tensorflow::mutex mu TF_ACQUIRED_AFTER(TF_Graph::mu);
   int last_num_graph_nodes;
 
-  // NOTE(ashankar): Experimental fields to help keep the
-  // buffers of a TF_Tensor pinned in device memory.
-  const tensorflow::DeviceMgr* device_mgr;   // Owned by session.
-  std::vector<tensorflow::Device*> devices;  // Owned by device_mgr.
+  // If true, TF_SessionRun and similar methods will call
+  // ExtendSessionGraphHelper before running the graph (this is the default
+  // public behavior). Can be set to false if the caller needs to call
+  // ExtendSessionGraphHelper manually.
+  std::atomic<bool> extend_before_run;
 };
 
 struct TF_ImportGraphDefOptions {
@@ -164,35 +162,32 @@ struct TF_Function {
 struct TF_ApiDefMap {
   explicit TF_ApiDefMap(const tensorflow::OpList& op_list)
       :
-#ifndef __ANDROID__
+#if !defined(IS_MOBILE_PLATFORM) && !defined(IS_SLIM_BUILD)
         api_def_map(op_list),
-#endif
+#endif  // !defined(IS_MOBILE_PLATFORM) && !defined(IS_SLIM_BUILD)
         update_docs_called(false) {
   }
 
-#ifndef __ANDROID__
-  tensorflow::ApiDefMap api_def_map GUARDED_BY(lock);
-#endif
-  bool update_docs_called GUARDED_BY(lock);
+#if !defined(IS_MOBILE_PLATFORM) && !defined(IS_SLIM_BUILD)
+  tensorflow::ApiDefMap api_def_map TF_GUARDED_BY(lock);
+#endif  // !defined(IS_MOBILE_PLATFORM) && !defined(IS_SLIM_BUILD)
+  bool update_docs_called TF_GUARDED_BY(lock);
   tensorflow::mutex lock;
 };
 
+#if !defined(IS_MOBILE_PLATFORM) && !defined(IS_SLIM_BUILD)
+struct TF_Server {
+  TF_Server(std::unique_ptr<tensorflow::ServerInterface> server);
+
+  const tensorflow::string target;
+  std::unique_ptr<tensorflow::ServerInterface> server;
+};
+#endif  // !defined(IS_MOBILE_PLATFORM) && !defined(IS_SLIM_BUILD)
+
 namespace tensorflow {
 
-class TensorCApi {
- public:
-  static TensorBuffer* Buffer(const Tensor& tensor) { return tensor.buf_; }
-  static Tensor MakeTensor(TF_DataType type, const TensorShape& shape,
-                           TensorBuffer* buf) {
-    return Tensor(static_cast<DataType>(type), shape, buf);
-  }
-};
-
-Status TF_TensorToTensor(const TF_Tensor* src, Tensor* dst);
-
-TF_Tensor* TF_TensorFromTensor(const Tensor& src, TF_Status* status);
-
-Status MessageToBuffer(const tensorflow::protobuf::Message& in, TF_Buffer* out);
+Status MessageToBuffer(const tensorflow::protobuf::MessageLite& in,
+                       TF_Buffer* out);
 
 // Set the shapes and types of the output's handle.
 //
@@ -210,7 +205,13 @@ void TF_GraphSetOutputHandleShapesAndTypes(TF_Graph* graph, TF_Output output,
                                            TF_Status* status);
 
 void RecordMutation(TF_Graph* graph, const TF_Operation& op,
-                    const char* mutation_type);
+                    const char* mutation_type)
+    TF_EXCLUSIVE_LOCKS_REQUIRED(graph->mu);
+
+bool ExtendSessionGraphHelper(TF_Session* session, TF_Status* status)
+    TF_LOCKS_EXCLUDED(session->graph->mu, session->mu);
+
+std::string getTF_OutputDebugString(TF_Output node);
 
 }  // end namespace tensorflow
 

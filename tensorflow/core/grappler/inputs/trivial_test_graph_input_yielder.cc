@@ -31,8 +31,6 @@ namespace {
 GraphDef CreateGraphDef(int num_stages, int width, int tensor_size,
                         bool use_multiple_devices, bool insert_queue,
                         const std::vector<string>& device_names) {
-  CHECK_GE(device_names.size(), width);
-
   using namespace ::tensorflow::ops;  // NOLINT(build/namespaces)
 
   tensorflow::Scope s = tensorflow::Scope::NewRootScope();
@@ -50,12 +48,16 @@ GraphDef CreateGraphDef(int num_stages, int width, int tensor_size,
     for (int j = 0; j < width; j++) {
       if (last_stage.size() == 1) {
         Output unary_op =
-            Square(s.WithDevice(device_names[use_multiple_devices ? j : 0]),
-                   last_stage[0]);
+            Sign(s.WithDevice(
+                     device_names[use_multiple_devices ? j % device_names.size()
+                                                       : 0]),
+                 last_stage[0]);
         this_stage.push_back(unary_op);
       } else {
         Output combine =
-            AddN(s.WithDevice(device_names[use_multiple_devices ? j : 0]),
+            AddN(s.WithDevice(
+                     device_names[use_multiple_devices ? j % device_names.size()
+                                                       : 0]),
                  last_stage);
         this_stage.push_back(combine);
       }

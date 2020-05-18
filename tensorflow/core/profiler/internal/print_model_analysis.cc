@@ -16,19 +16,21 @@ limitations under the License.
 #include "tensorflow/core/profiler/internal/print_model_analysis.h"
 
 #include <stdio.h>
+
 #include <memory>
 #include <utility>
 
+#include "absl/strings/str_format.h"
 #include "tensorflow/c/checkpoint_reader.h"
 #include "tensorflow/core/framework/graph.pb.h"
 #include "tensorflow/core/lib/core/errors.h"
-#include "tensorflow/core/protobuf/config.pb.h"
 #include "tensorflow/core/profiler/internal/advisor/tfprof_advisor.h"
-#include "tensorflow/core/profiler/internal/tfprof_options.h"
 #include "tensorflow/core/profiler/internal/tfprof_stats.h"
 #include "tensorflow/core/profiler/tfprof_log.pb.h"
+#include "tensorflow/core/profiler/tfprof_options.h"
 #include "tensorflow/core/profiler/tfprof_options.pb.h"
 #include "tensorflow/core/profiler/tfprof_output.pb.h"
+#include "tensorflow/core/protobuf/config.pb.h"
 
 namespace tensorflow {
 namespace tfprof {
@@ -40,7 +42,7 @@ string RunProfile(const string& command, const string& options,
   if (command == kCmds[4]) {
     AdvisorOptionsProto option_pb;
     if (!option_pb.ParseFromString(options)) {
-      fprintf(stderr, "Cannot parse AdvisorOptionsProto\n");
+      absl::FPrintF(stderr, "Cannot parse AdvisorOptionsProto\n");
       return "";
     }
     tf_stats->BuildAllViews();
@@ -52,23 +54,26 @@ string RunProfile(const string& command, const string& options,
   Options opts;
   tensorflow::Status s = Options::FromProtoStr(options, &opts);
   if (!s.ok()) {
-    fprintf(stderr, "%s\n", s.ToString().c_str());
+    absl::FPrintF(stderr, "%s\n", s.ToString());
     return "";
   }
 
   if (opts.output_type == kOutput[1]) {
-    printf("\n=========================Options=============================\n");
-    printf("%s", opts.ToString().c_str());
-    printf("\n==================Model Analysis Report======================\n");
+    absl::PrintF(
+        "\n=========================Options=============================\n");
+    absl::PrintF("%s", opts.ToString());
+    absl::PrintF(
+        "\n==================Model Analysis Report======================\n");
     string ret = "";
     if (command == kCmds[2] || command == kCmds[3]) {
       ret = tf_stats->ShowMultiGraphNode(command, opts).SerializeAsString();
     } else if (command == kCmds[0] || command == kCmds[1]) {
       ret = tf_stats->ShowGraphNode(command, opts).SerializeAsString();
     } else {
-      fprintf(stderr, "Unknown command: %s\n", command.c_str());
+      absl::FPrintF(stderr, "Unknown command: %s\n", command);
     }
-    printf("\n======================End of Report==========================\n");
+    absl::PrintF(
+        "\n======================End of Report==========================\n");
     fflush(stdout);
     return ret;
   }
@@ -77,19 +82,20 @@ string RunProfile(const string& command, const string& options,
   } else if (command == kCmds[0] || command == kCmds[1]) {
     return tf_stats->ShowGraphNode(command, opts).SerializeAsString();
   } else {
-    fprintf(stderr, "Unknown command: %s\n", command.c_str());
+    absl::FPrintF(stderr, "Unknown command: %s\n", command);
     return "";
   }
 }
 }  // namespace
 
 bool NewProfiler(const string* graph, const string* op_log) {
-  CHECK(graph) << "graph mustn't be null";
   std::unique_ptr<GraphDef> graph_ptr(new GraphDef());
-  if (!graph_ptr->ParseFromString(*graph)) {
-    if (!protobuf::TextFormat::ParseFromString(*graph, graph_ptr.get())) {
-      fprintf(stderr, "Failed to parse graph\n");
-      return false;
+  if (graph && !graph->empty()) {
+    if (!graph_ptr->ParseFromString(*graph)) {
+      if (!protobuf::TextFormat::ParseFromString(*graph, graph_ptr.get())) {
+        absl::FPrintF(stderr, "Failed to parse graph\n");
+        return false;
+      }
     }
   }
 
@@ -97,7 +103,7 @@ bool NewProfiler(const string* graph, const string* op_log) {
   if (op_log && !op_log->empty()) {
     op_log_ptr.reset(new OpLogProto());
     if (!op_log_ptr->ParseFromString(*op_log)) {
-      fprintf(stderr, "Failed to parse OpLogProto.\n");
+      absl::FPrintF(stderr, "Failed to parse OpLogProto.\n");
       return false;
     }
   }
@@ -123,14 +129,15 @@ double AddStep(int64 step, const string* graph, const string* run_meta,
                const string* op_log) {
   CHECK(tf_stat);
 
-  CHECK(graph && !graph->empty());
-  std::unique_ptr<GraphDef> graph_ptr(new GraphDef());
-  if (!graph_ptr->ParseFromString(*graph)) {
-    if (!protobuf::TextFormat::ParseFromString(*graph, graph_ptr.get())) {
-      fprintf(stderr, "Failed to parse graph\n");
+  if (graph && !graph->empty()) {
+    std::unique_ptr<GraphDef> graph_ptr(new GraphDef());
+    if (!graph_ptr->ParseFromString(*graph)) {
+      if (!protobuf::TextFormat::ParseFromString(*graph, graph_ptr.get())) {
+        absl::FPrintF(stderr, "Failed to parse graph\n");
+      }
     }
+    tf_stat->AddGraph(std::move(graph_ptr));
   }
-  tf_stat->AddGraph(std::move(graph_ptr));
 
   CHECK(run_meta && !run_meta->empty());
   // TODO(xpan): Better error handling.
@@ -154,6 +161,13 @@ string Profile(const string* command, const string* options) {
   return RunProfile(*command, *options, tf_stat);
 }
 
+string SerializeToString() {
+  CHECK(tf_stat);
+  string content;
+  tf_stat->SerializeToString(&content);
+  return content;
+}
+
 void WriteProfile(const string* filename) {
   CHECK(tf_stat);
   CHECK(filename) << "empty file name when asking to write profile.";
@@ -163,11 +177,12 @@ void WriteProfile(const string* filename) {
 string PrintModelAnalysis(const string* graph, const string* run_meta,
                           const string* op_log, const string* command,
                           const string* options) {
-  CHECK(graph) << "graph mustn't be null";
   CHECK(command) << "command mustn't be null";
   CHECK(options) << "options mustn't be null";
   std::unique_ptr<GraphDef> graph_ptr(new GraphDef());
-  graph_ptr->ParseFromString(*graph);
+  if (graph && !graph->empty()) {
+    graph_ptr->ParseFromString(*graph);
+  }
 
   std::unique_ptr<RunMetadata> run_meta_ptr;
   if (run_meta && !run_meta->empty()) {

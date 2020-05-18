@@ -21,6 +21,7 @@ limitations under the License.
 #include <string>
 #include <vector>
 
+#include "tensorflow/core/framework/dataset.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/register_types.h"
 #include "tensorflow/core/framework/tensor.h"
@@ -74,16 +75,14 @@ class InitializeTableOp : public OpKernel {
                     "Keys and values must have the same size ",
                     keys.NumElements(), " vs ", values.NumElements()));
 
-    lookup::KeyValueTensorIterator iter(&keys, &values);
-
     int memory_used_before = 0;
     if (ctx->track_allocations()) {
       memory_used_before = table->MemoryUsed();
     }
-    OP_REQUIRES_OK(ctx, table->Initialize(iter));
+    OP_REQUIRES_OK(ctx, table->ImportValues(ctx, keys, values));
     if (ctx->track_allocations()) {
-      ctx->record_host_persistent_memory_allocation(table->MemoryUsed() -
-                                                    memory_used_before);
+      ctx->record_persistent_memory_allocation(table->MemoryUsed() -
+                                               memory_used_before);
     }
   }
 
@@ -132,7 +131,7 @@ class InitializeTableFromTextFileOp : public OpKernel {
         errors::InvalidArgument("filename should be a single string, but got ",
                                 vocab_filename_tensor.shape().DebugString()));
 
-    string vocab_filename = vocab_filename_tensor.scalar<string>()();
+    const string& vocab_filename = vocab_filename_tensor.scalar<tstring>()();
     OP_REQUIRES(ctx, !vocab_filename.empty(),
                 errors::InvalidArgument("filename cannot be empty."));
 
@@ -144,8 +143,8 @@ class InitializeTableFromTextFileOp : public OpKernel {
                             vocab_filename, vocab_size_, delimiter_, key_index_,
                             value_index_, ctx->env(), table));
     if (ctx->track_allocations()) {
-      ctx->record_host_persistent_memory_allocation(table->MemoryUsed() -
-                                                    memory_used_before);
+      ctx->record_persistent_memory_allocation(table->MemoryUsed() -
+                                               memory_used_before);
     }
   }
 
@@ -165,4 +164,26 @@ REGISTER_KERNEL_BUILDER(
     Name("InitializeTableFromTextFileV2").Device(DEVICE_CPU),
     InitializeTableFromTextFileOp);
 
+class InitializeTableFromDatasetOp : public OpKernel {
+ public:
+  explicit InitializeTableFromDatasetOp(OpKernelConstruction* ctx)
+      : OpKernel(ctx) {}
+
+  void Compute(OpKernelContext* ctx) override {
+    lookup::InitializableLookupTable* table;
+    OP_REQUIRES_OK(ctx,
+                   GetInitializableLookupTable("table_handle", ctx, &table));
+    core::ScopedUnref unref_me(table);
+    DatasetBase* dataset;
+    OP_REQUIRES_OK(ctx, GetDatasetFromVariantTensor(ctx->input(1), &dataset));
+    OP_REQUIRES_OK(ctx,
+                   lookup::InitializeTableFromDataset(ctx, dataset, table));
+  }
+
+ private:
+  TF_DISALLOW_COPY_AND_ASSIGN(InitializeTableFromDatasetOp);
+};
+
+REGISTER_KERNEL_BUILDER(Name("InitializeTableFromDataset").Device(DEVICE_CPU),
+                        InitializeTableFromDatasetOp);
 }  // namespace tensorflow

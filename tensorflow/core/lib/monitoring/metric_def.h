@@ -13,14 +13,16 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef THIRD_PARTY_TENSORFLOW_CORE_LIB_MONITORING_METRIC_DEF_H_
-#define THIRD_PARTY_TENSORFLOW_CORE_LIB_MONITORING_METRIC_DEF_H_
+#ifndef TENSORFLOW_CORE_LIB_MONITORING_METRIC_DEF_H_
+#define TENSORFLOW_CORE_LIB_MONITORING_METRIC_DEF_H_
 
 #include <array>
 #include <vector>
 
 #include "tensorflow/core/framework/summary.pb.h"
-#include "tensorflow/core/lib/core/stringpiece.h"
+#include "tensorflow/core/lib/monitoring/types.h"
+#include "tensorflow/core/platform/stringpiece.h"
+#include "tensorflow/core/platform/types.h"
 
 namespace tensorflow {
 namespace monitoring {
@@ -37,7 +39,13 @@ namespace monitoring {
 enum class MetricKind : int { kGauge = 0, kCumulative };
 
 // The type of the metric values.
-enum class ValueType : int { kInt64 = 0, kHistogram, kString, kBool };
+enum class ValueType : int {
+  kInt64 = 0,
+  kHistogram,
+  kString,
+  kBool,
+  kPercentiles
+};
 
 // Everything in the internal namespace is implementation details. Do not depend
 // on this.
@@ -54,6 +62,11 @@ inline ValueType GetValueType<int64>() {
 template <>
 inline ValueType GetValueType<HistogramProto>() {
   return ValueType::kHistogram;
+}
+
+template <>
+inline ValueType GetValueType<Percentiles>() {
+  return ValueType::kPercentiles;
 }
 
 template <>
@@ -98,8 +111,8 @@ class AbstractMetricDef {
                     const std::vector<string>& label_descriptions)
       : kind_(kind),
         value_type_(value_type),
-        name_(name.ToString()),
-        description_(description.ToString()),
+        name_(name),
+        description_(description),
         label_descriptions_(std::vector<string>(label_descriptions.begin(),
                                                 label_descriptions.end())) {}
 
@@ -139,4 +152,4 @@ class MetricDef : public AbstractMetricDef {
 }  // namespace monitoring
 }  // namespace tensorflow
 
-#endif  // THIRD_PARTY_TENSORFLOW_CORE_LIB_MONITORING_METRIC_DEF_H_
+#endif  // TENSORFLOW_CORE_LIB_MONITORING_METRIC_DEF_H_

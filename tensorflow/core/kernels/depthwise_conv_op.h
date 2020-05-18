@@ -13,8 +13,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef THIRD_PARTY_TENSORFLOW_CORE_KERNELS_DEPTHWISE_CONV_OP_H_
-#define THIRD_PARTY_TENSORFLOW_CORE_KERNELS_DEPTHWISE_CONV_OP_H_
+#ifndef TENSORFLOW_CORE_KERNELS_DEPTHWISE_CONV_OP_H_
+#define TENSORFLOW_CORE_KERNELS_DEPTHWISE_CONV_OP_H_
 
 #include "third_party/eigen3/unsupported/Eigen/CXX11/Tensor"
 #include "tensorflow/core/framework/types.h"
@@ -32,8 +32,8 @@ struct DepthwiseArgs {
   int filter_cols;
   int depth_multiplier;
   int stride;
-  int pad_rows;
-  int pad_cols;
+  int pad_rows;  // Amount of padding to the top of the input
+  int pad_cols;  // Amount of padding to the left of the input
 
   // Output layer dimensions
   int out_rows;
@@ -80,10 +80,10 @@ struct LaunchDepthwiseConvBackpropFilterOp {
                   TensorFormat data_format);
 };
 
-#if GOOGLE_CUDA
+#if GOOGLE_CUDA || TENSORFLOW_USE_ROCM
 template <typename T>
 struct LaunchDepthwiseConvOp<Eigen::GpuDevice, T> {
-  void operator()(OpKernelContext* ctx, const DepthwiseArgs args,
+  void operator()(OpKernelContext* ctx, const DepthwiseArgs& args,
                   const T* input, const T* filter, T* output,
                   TensorFormat data_format);
 };
@@ -167,7 +167,7 @@ struct DepthwiseFilterPadOp {
 
 // Copies data from local region in 'input' specified by 'out_r' and 'out_'c'
 // to 'input_buffer'. The copied data is replicated by factor
-// 'args.depth_mulitplier', and padded to vector register-width boundaries so
+// 'args.depth_multiplier', and padded to vector register-width boundaries so
 // that it is aligned for efficient traversal and vector multiply-add by the
 // depthwise kernel.
 //
@@ -284,4 +284,4 @@ struct DepthwiseInputCopyOp {
 }  // namespace functor
 }  // namespace tensorflow
 
-#endif  // THIRD_PARTY_TENSORFLOW_CORE_KERNELS_DEPTHWISE_CONV_OP_H_
+#endif  // TENSORFLOW_CORE_KERNELS_DEPTHWISE_CONV_OP_H_

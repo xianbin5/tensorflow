@@ -188,11 +188,12 @@ void TestManualScalar() {
       10.0f, {1}, {10.0f}, -100.0f, 100.0f, {10},
       {10.0f, 20.0f, 30.0f, 40.0f, 50.0f, 60.0f, 70.0f, 80.0f, 90.0f, 100.0f},
       3.0f);
-  TestMul({1}, {10.0f}, -100.0f, 100.0f, {10},
-          {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f, 10.0f}, 0.0f,
-          10.0f, {10}, {10.0f, 20.0f, 30.0f, 40.0f, 50.0f, 60.0f, 70.0f, 80.0f,
-                        90.0f, 100.0f},
-          3.0f);
+  TestMul(
+      {1}, {10.0f}, -100.0f, 100.0f, {10},
+      {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 7.0f, 8.0f, 9.0f, 10.0f}, 0.0f,
+      10.0f, {10},
+      {10.0f, 20.0f, 30.0f, 40.0f, 50.0f, 60.0f, 70.0f, 80.0f, 90.0f, 100.0f},
+      3.0f);
 }
 
 void TestScalar() {
@@ -295,7 +296,7 @@ RUN_TEST(BenchmarkVectorTimesTensor);
 #endif  // __ANDROID__
 
 int main(int argc, char** argv) {
-  // On Linux, add: FLAGS_logtostderr = true;
+  // On Linux, add: absl::SetFlag(&FLAGS_logtostderr, true);
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
 }
